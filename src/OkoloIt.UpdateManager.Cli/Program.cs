@@ -1,2 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
+﻿using OkoloIt.UpdateManager.Core;
+
+
 Console.WriteLine("Hello, World!");

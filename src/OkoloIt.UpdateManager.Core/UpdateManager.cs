@@ -1,11 +1,12 @@
 ﻿using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 
+using OkoloIt.UpdateManager.Core.Data;
+
 namespace OkoloIt.UpdateManager.Core;
 
-// Чтение json
-// 
 public class UpdateManager
 {
     public static BasicUpgradeConfiguration CreateBasicUpgradeConfiguration(string basicVersionFolderPath)
@@ -37,6 +38,48 @@ public class UpdateManager
         added.ForEach(x => Trace.WriteLine($"[DBG]: Добавлен {x}"));
         deleted.ForEach(x => Trace.WriteLine($"[DBG]: Удален {x}"));
         updated.ForEach(x => Trace.WriteLine($"[DBG]: Обновлен {x}"));
+    }
+
+    public void CreatePatchFile(Patch patch, string patchFolderPath)
+    {
+        string patchFilePath = $"{Path.Combine(patchFolderPath, patch.Info.ProductName)} {patch.Info.Version}.patch";
+        using Stream fileStream = new FileStream(patchFilePath, FileMode.CreateNew);
+        using ZipArchive archive = new(fileStream, ZipArchiveMode.Create, true);
+
+        GeneratePatchInfoFile(patch.Info, archive);
+
+        foreach (string newFilePath in patch.NewFilesPaths) {
+            var fileBytes = File.ReadAllBytes(newFilePath);
+            var fileName = Path.GetFileName(newFilePath);
+
+            ZipArchiveEntry zipArchiveEntry = archive.CreateEntry(fileName, CompressionLevel.SmallestSize);
+            using Stream zipStream = zipArchiveEntry.Open();
+            zipStream.Write(fileBytes, 0, fileBytes.Length);
+        }
+    }
+
+    public void ReadPatchFile(string patchFilePath)
+    {
+        using Stream fileStream = new FileStream(patchFilePath, FileMode.Open);
+        using ZipArchive archive = new(fileStream, ZipArchiveMode.Read, true);
+        //archive.Entries
+
+        // Получение списка патчей
+    }
+
+    private void GeneratePatchInfoFile(PatchInfo info, ZipArchive archive)
+    {
+        using Stream memoryStream = new MemoryStream();
+        using TextWriter streamWriter = new StreamWriter(memoryStream);
+
+        streamWriter.WriteLine($"Product: {info.ProductName}");
+        streamWriter.WriteLine($"Version: {info.Version}");
+        streamWriter.Flush();
+        memoryStream.Position = 0;
+
+        ZipArchiveEntry zipArchiveEntry = archive.CreateEntry("Manifest.json", CompressionLevel.SmallestSize);
+        using Stream zipStream = zipArchiveEntry.Open();
+        memoryStream.CopyTo(zipStream);
     }
 
     private static List<string> GetAllFilePaths(string folderPath)

@@ -1,4 +1,4 @@
-﻿namespace OkoloIt.UpdateManager.Core;
+﻿namespace OkoloIt.UpdateManager.Core.Data;
 
 public class BasicUpgradeConfiguration
 {

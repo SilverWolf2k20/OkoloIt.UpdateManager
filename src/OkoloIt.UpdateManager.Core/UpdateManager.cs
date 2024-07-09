@@ -1,7 +1,7 @@
-﻿using System.Diagnostics;
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using OkoloIt.UpdateManager.Core.Data;
 
@@ -9,53 +9,43 @@ namespace OkoloIt.UpdateManager.Core;
 
 public class UpdateManager
 {
-    public static BasicUpgradeConfiguration CreateBasicUpgradeConfiguration(string basicVersionFolderPath)
+    public static BaseVersionInfo CreateBasicUpgradeConfiguration(string basicVersionFolderPath)
     {
         // Получение контрольных сумм
-        List<UpdateFileModel> filesInfo = GetUpdateFileModels(basicVersionFolderPath);
+        List<VersionFileInfo> filesInfo = GetUpdateFileModels(basicVersionFolderPath);
 
-        return new BasicUpgradeConfiguration() {
+        return new BaseVersionInfo() {
             UpdateFileModels = filesInfo
         };
     }
 
-    public static void CreatePatch(string newVersionFolderPath, BasicUpgradeConfiguration upgradeConfiguration)
+    public static PatchData CreatePatch(string newVersionFolderPath, BaseVersionInfo baseVersionInfo, string patchVersion)
     {
-        List<UpdateFileModel> newFilesInfo = GetUpdateFileModels(newVersionFolderPath);
+        List<VersionFileInfo> newFilesInfo = GetUpdateFileModels(newVersionFolderPath);
 
         // Удаленные.
-        var deleted = upgradeConfiguration.UpdateFileModels.ExceptBy(newFilesInfo.Select(x => x.FilePath), x => x.FilePath)
+        var deleted = baseVersionInfo.UpdateFileModels.ExceptBy(newFilesInfo.Select(x => x.FilePath), x => x.FilePath)
+            .Select(x => new VersionFileInfo(Path.Combine(newVersionFolderPath, x.FilePath), x.Hash))
             .ToList();
 
         // Добавленные.
-        var added   = newFilesInfo.ExceptBy(upgradeConfiguration.UpdateFileModels.Select(x => x.FilePath), x => x.FilePath)
+        var added   = newFilesInfo.ExceptBy(baseVersionInfo.UpdateFileModels.Select(x => x.FilePath), x => x.FilePath)
+            .Select(x => new VersionFileInfo(Path.Combine(newVersionFolderPath, x.FilePath), x.Hash))
             .ToList();
 
-        var updated = upgradeConfiguration.UpdateFileModels.Except(deleted)
+        var updated = baseVersionInfo.UpdateFileModels.Except(deleted)
             .ExceptBy(newFilesInfo.Select(x => x.Hash), x => x.Hash)
+            .Select(x => new VersionFileInfo(Path.Combine(newVersionFolderPath, x.FilePath), x.Hash))
             .ToList();
 
-        added.ForEach(x => Trace.WriteLine($"[DBG]: Добавлен {x}"));
-        deleted.ForEach(x => Trace.WriteLine($"[DBG]: Удален {x}"));
-        updated.ForEach(x => Trace.WriteLine($"[DBG]: Обновлен {x}"));
-    }
+        PatchInfo patchInfo = new(
+            baseVersionInfo.Product,
+            patchVersion,
+            patchVersion.Contains('-'),
+            added,
+            deleted);
 
-    public void CreatePatchFile(Patch patch, string patchFolderPath)
-    {
-        string patchFilePath = $"{Path.Combine(patchFolderPath, patch.Info.ProductName)} {patch.Info.Version}.patch";
-        using Stream fileStream = new FileStream(patchFilePath, FileMode.CreateNew);
-        using ZipArchive archive = new(fileStream, ZipArchiveMode.Create, true);
-
-        GeneratePatchInfoFile(patch.Info, archive);
-
-        foreach (string newFilePath in patch.NewFilesPaths) {
-            var fileBytes = File.ReadAllBytes(newFilePath);
-            var fileName = Path.GetFileName(newFilePath);
-
-            ZipArchiveEntry zipArchiveEntry = archive.CreateEntry(fileName, CompressionLevel.SmallestSize);
-            using Stream zipStream = zipArchiveEntry.Open();
-            zipStream.Write(fileBytes, 0, fileBytes.Length);
-        }
+        return new PatchData(patchInfo, updated);
     }
 
     public void ReadPatchFile(string patchFilePath)
@@ -65,21 +55,6 @@ public class UpdateManager
         //archive.Entries
 
         // Получение списка патчей
-    }
-
-    private void GeneratePatchInfoFile(PatchInfo info, ZipArchive archive)
-    {
-        using Stream memoryStream = new MemoryStream();
-        using TextWriter streamWriter = new StreamWriter(memoryStream);
-
-        streamWriter.WriteLine($"Product: {info.ProductName}");
-        streamWriter.WriteLine($"Version: {info.Version}");
-        streamWriter.Flush();
-        memoryStream.Position = 0;
-
-        ZipArchiveEntry zipArchiveEntry = archive.CreateEntry("Manifest.json", CompressionLevel.SmallestSize);
-        using Stream zipStream = zipArchiveEntry.Open();
-        memoryStream.CopyTo(zipStream);
     }
 
     private static List<string> GetAllFilePaths(string folderPath)
@@ -92,13 +67,13 @@ public class UpdateManager
         return filePaths;
     }
 
-    private static List<UpdateFileModel> GetUpdateFileModels(string basicVersionFolderPath)
+    private static List<VersionFileInfo> GetUpdateFileModels(string basicVersionFolderPath)
     {
         // Чтение всех файлов
         List<string> filePaths = GetAllFilePaths(basicVersionFolderPath);
 
         // Получение контрольных сумм
-        List<UpdateFileModel> filesInfo = new(filePaths.Count);
+        List<VersionFileInfo> filesInfo = new(filePaths.Count);
         foreach (string filePath in filePaths) {
             var inputBytes = File.ReadAllBytes(filePath);
             var hashBytes = MD5.HashData(inputBytes);
@@ -108,7 +83,7 @@ public class UpdateManager
                 builder.Append(hashByte.ToString("X2"));
 
 
-            filesInfo.Add(new UpdateFileModel(
+            filesInfo.Add(new VersionFileInfo(
                 Path.GetRelativePath(basicVersionFolderPath, filePath),
                 builder.ToString()));
         }

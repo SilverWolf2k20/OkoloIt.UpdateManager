@@ -1,7 +1,8 @@
 ﻿namespace OkoloIt.UpdateManager.Core.Data;
 
 public record struct PatchInfo(
-    string ProductName,
+    string Product,
     string Version,
-    IEnumerable<string> AddedFilesPaths,
-    IEnumerable<string> DeletedFilesPaths);
+    bool IsDraftVersion,
+    IEnumerable<VersionFileInfo> AddedFilesPaths,
+    IEnumerable<VersionFileInfo> DeletedFilesPaths);
